@@ -1,0 +1,13 @@
+# build artifacts
+/bin/
+*.so
+*.h
+
+# go workspace caches
+/vendor/
+
+# editor / os
+.DS_Store
+*.swp
+.idea/
+.vscode/
