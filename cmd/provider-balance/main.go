@@ -57,6 +57,7 @@ const (
 	pluginLogoDataURI    = "data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNGZlM2M1IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0ibTE2IDE2IDMtOCAzIDhjLS44Ny42NS0xLjkyIDEtMyAxcy0yLjEzLS4zNS0zLTFaIi8+PHBhdGggZD0ibTIgMTYgMy04IDMgOGMtLjg3LjY1LTEuOTIgMS0zIDFzLTIuMTMtLjM1LTMtMVoiLz48cGF0aCBkPSJNNyAyMWgxMCIvPjxwYXRoIGQ9Ik0xMiAzdjE4Ii8+PHBhdGggZD0iTTMgN2gyYzIgMCA1LTEgNy0yIDIgMSA1IDIgNyAyaDIiLz48L3N2Zz4="
 	pluginResourcePath   = "/balance"
 	pluginResourceJSON   = "/balance.json"
+	pluginResourcePing   = "/ping.json"
 )
 
 var currentConfig atomic.Value
@@ -229,6 +230,7 @@ func managementRegistration() managementRegistrationResponse {
 			// page fetches balance.json for live data.
 			{Path: pluginResourcePath, Menu: pluginMenuName, Description: "AI provider API-key balance dashboard"},
 			{Path: pluginResourceJSON, Menu: "", Description: "Balance data as JSON"},
+			{Path: pluginResourcePing, Menu: "", Description: "Provider connectivity test as JSON"},
 		},
 	}
 }

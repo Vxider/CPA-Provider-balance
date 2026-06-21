@@ -99,6 +99,7 @@ func extractSection(sections map[string]*yaml.Node, sectionName, kind string) []
 					BaseURL:  entryBase,
 					APIKey:   key,
 					Disabled: disabled || boolField(ef, "disabled"),
+					Kind:     kind,
 				})
 			}
 			continue
@@ -119,6 +120,7 @@ func extractSection(sections map[string]*yaml.Node, sectionName, kind string) []
 					BaseURL:  baseURL,
 					APIKey:   key,
 					Disabled: disabled,
+					Kind:     kind,
 				})
 			}
 			continue
@@ -131,6 +133,7 @@ func extractSection(sections map[string]*yaml.Node, sectionName, kind string) []
 				BaseURL:  baseURL,
 				APIKey:   key,
 				Disabled: disabled,
+				Kind:     kind,
 			})
 		}
 		_ = idx

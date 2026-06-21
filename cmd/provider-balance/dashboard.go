@@ -54,7 +54,7 @@ const dashboardHTML = `<!DOCTYPE html>
   }
   .logo { width: 28px; height: 28px; color: #4fe3c5; flex: none; }
   .refresh-btn {
-    margin-left: auto; padding: 6px 12px; border-radius: 999px;
+    padding: 6px 12px; border-radius: 999px;
     font-size: 12px; line-height: 1; color: var(--ink-dim);
     height: 28px; box-sizing: border-box; align-self: center;
     background: transparent; border: 1px solid transparent;
@@ -128,6 +128,35 @@ const dashboardHTML = `<!DOCTYPE html>
   @keyframes fadein { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: none; } }
   .empty { padding: 40px; text-align: center; color: var(--ink-faint); }
   footer { margin-top: 22px; color: var(--ink-faint); font-size: 12px; text-align: center; }
+  .ping-btn {
+    padding: 6px 14px; border-radius: 999px; height: 28px;
+    margin-left: auto;
+    font-size: 12px; line-height: 1; color: var(--accent);
+    align-self: center; cursor: pointer;
+    background: rgba(79,227,197,0.08); border: 1px solid rgba(79,227,197,0.30);
+    display: inline-flex; align-items: center; gap: 6px;
+    transition: background .2s ease, border-color .2s ease, color .2s ease;
+  }
+  .ping-btn:hover, .ping-btn:focus-visible { background: rgba(79,227,197,0.16); border-color: var(--accent); color: var(--accent); outline: none; }
+  .ping-btn:disabled { opacity: 0.5; cursor: default; }
+  .ping-btn svg { width: 14px; height: 14px; }
+  .ping-btn.loading svg { animation: spin .8s linear infinite; }
+  .latency { color: var(--ink-dim); font-size: 12px; }
+  .ping-status-ok { color: var(--good); font-weight: 600; }
+  .ping-status-unreachable { color: var(--bad); font-weight: 600; }
+  .ping-status-unauthorized { color: var(--warn); font-weight: 600; }
+  .ping-status-no_endpoint { color: var(--ink-dim); font-weight: 600; }
+  .ping-status-no_model { color: var(--ink-dim); font-weight: 600; }
+  .ping-status-error { color: var(--bad); font-weight: 600; }
+  .conn-cell { white-space: nowrap; min-width: 92px; }
+  .conn-cell .conn-status { font-weight: 600; font-size: 13px; }
+  .conn-cell .conn-meta { font-size: 11px; color: var(--ink-faint); margin-top: 2px; }
+  .conn-running { color: var(--ink-dim); display: inline-flex; align-items: center; gap: 6px; }
+  .conn-running::before {
+    content: ""; width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.15); border-top-color: var(--accent);
+    animation: spin .7s linear infinite;
+  }
   @media (max-width: 640px) {
     .hide-sm { display: none; }
     table.grid th, table.grid td { padding: 10px 12px; font-size: 13px; }
@@ -138,7 +167,8 @@ const dashboardHTML = `<!DOCTYPE html>
   <header class="top">
     <h1><svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>Provider Balance</h1>
     <span class="sub" id="when">--</span>
-    <button class="refresh-btn" id="refreshBtn" type="button" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
+    <button class="ping-btn" id="pingBtn" type="button" title="连通性测试"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M5 12.55a11 11 0 0 1 14.08 0"/><path d="M1.42 9a16 16 0 0 1 21.16 0"/><path d="M8.53 16.11a6 6 0 0 1 6.95 0"/><line x1="12" y1="20" x2="12.01" y2="20"/></svg><span>连通性测试</span></button>
+<button class="refresh-btn" id="refreshBtn" type="button" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
     <span class="status-pill"><span class="dot" id="dot"></span><span id="pill">idle</span></span>
   </header>
 
@@ -154,11 +184,12 @@ const dashboardHTML = `<!DOCTYPE html>
         <th class="hide-sm">Used</th>
         <th class="hide-sm">Total</th>
         <th>Status</th>
+        <th>连通性</th>
         <th class="hide-sm">Note</th>
       </tr>
     </thead>
     <tbody id="rows">
-      <tr><td colspan="7" class="empty">Loading...</td></tr>
+      <tr><td colspan="8" class="empty">Loading...</td></tr>
     </tbody>
   </table>
   </div>
@@ -167,7 +198,20 @@ const dashboardHTML = `<!DOCTYPE html>
 
 <script>
 const API = "/v0/resource/plugins/provider-balance/balance.json";
+const PING_API = "/v0/resource/plugins/provider-balance/ping.json";
 const $ = (id) => document.getElementById(id);
+
+// Cached balance data and per-row connectivity state. Connectivity results are
+// keyed by row index (matching the sorted balance rows) so a single cell can be
+// patched without re-rendering the whole table.
+let balanceData = null;
+let pingResults = {};          // rowIndex -> connectivity report
+let pingPendingSet = new Set(); // rowIndexes currently being tested
+
+const PING_STATUS_LABEL = {
+  ok: "OK", unreachable: "不可达", unauthorized: "未授权",
+  no_model: "无模型", no_endpoint: "无接口", error: "错误",
+};
 
 function fmtNum(v, unit) {
   if (v === null || v === undefined) return "-";
@@ -184,6 +228,7 @@ function pct(remaining, total) {
   return p;
 }
 
+// ---- balance load (initial + refresh). Does NOT run connectivity. ----
 async function load() {
   $("dot").className = "dot live";
   $("pill").textContent = "fetching";
@@ -192,14 +237,18 @@ async function load() {
   try {
     const res = await fetch(API, { headers: { "Accept": "application/json" } });
     if (!res.ok) throw new Error("HTTP " + res.status);
-    const data = await res.json();
-    render(data);
+    balanceData = await res.json();
+    // A balance refresh invalidates previous connectivity results.
+    pingResults = {};
+    pingPendingSet = new Set();
+    render();
     $("dot").className = "dot live";
     $("pill").textContent = "ok";
   } catch (e) {
     $("dot").className = "dot err";
     $("pill").textContent = "error";
-    $("rows").innerHTML = '<tr><td colspan="7" class="empty">Failed to load: ' + String(e.message || e) + '</td></tr>';
+    balanceData = null;
+    $("rows").innerHTML = '<tr><td colspan="8" class="empty">Failed to load: ' + esc(String(e.message || e)) + '</td></tr>';
     $("summary").innerHTML = "";
   } finally {
     btn.classList.remove("loading"); btn.disabled = false;
@@ -207,8 +256,13 @@ async function load() {
   $("when").textContent = "updated " + new Date().toLocaleTimeString();
 }
 
-function render(data) {
-  const rows = (data.providers || []).slice().sort((a,b) => (a.provider||"").localeCompare(b.provider||""));
+function sortedRows() {
+  return (balanceData && balanceData.providers || []).slice().sort((a,b) => (a.provider||"").localeCompare(b.provider||""));
+}
+
+function render() {
+  if (!balanceData) return;
+  const rows = sortedRows();
   const okCount = rows.filter(r => r.status === "OK").length;
   const errCount = rows.filter(r => r.status === "Err").length;
   let remSum = 0, remHas = 0;
@@ -217,10 +271,10 @@ function render(data) {
   });
   $("summary").innerHTML = summaryCards(rows.length, okCount, errCount, remSum, remHas);
   if (!rows.length) {
-    $("rows").innerHTML = '<tr><td colspan="7" class="empty">No providers configured. Set openai-compatibility / codex-api-key in config.yaml or extra_providers in the plugin config.</td></tr>';
+    $("rows").innerHTML = '<tr><td colspan="8" class="empty">No providers configured. Set openai-compatibility / codex-api-key in config.yaml or extra_providers in the plugin config.</td></tr>';
     return;
   }
-  $("rows").innerHTML = rows.map(r => {
+  $("rows").innerHTML = rows.map((r, i) => {
     const cls = r.status === "OK" ? "row-ok" : "";
     const p = pct(r.remaining, r.total);
     let barCls = "bar", barW = "0%";
@@ -233,9 +287,32 @@ function render(data) {
       + '<td class="hide-sm mono">' + fmtNum(r.used, "") + '</td>'
       + '<td class="hide-sm mono">' + fmtNum(r.total, "") + '</td>'
       + '<td class="status ' + (r.status === "OK" ? "status-ok" : r.status === "Err" ? "status-err" : "status-na") + '">' + esc(r.status || "-") + '</td>'
+      + '<td class="conn-cell" id="conn-' + i + '">' + connCellContent(i) + '</td>'
       + '<td class="hide-sm"><div class="note" title="' + esc(r.note||"") + '">' + esc(r.note || "-") + '</div></td>'
       + '</tr>';
   }).join("");
+}
+
+// connCellContent returns the inner markup for a connectivity cell (without the
+// <td> wrapper), shared by the initial render and the per-row patch.
+function connCellContent(i) {
+  if (pingPendingSet.has(i)) {
+    return '<span class="conn-running">测试中</span>';
+  }
+  const r = pingResults[i];
+  if (!r) return '<span class="conn-status status-na">-</span>';
+  const label = PING_STATUS_LABEL[r.status] || r.status;
+  const meta = (r.model ? r.model : "") + (r.latency_ms != null ? " · " + r.latency_ms + "ms" : "");
+  const noteTip = r.note ? r.note : "";
+  return '<div class="conn-status ping-status-' + (r.status||"error") + '" title="' + esc(noteTip) + '">' + label + '</div>'
+    + (meta ? '<div class="conn-meta mono">' + esc(meta) + '</div>' : '');
+}
+
+// Patch a single cell without re-rendering the table (avoids re-triggering row
+// fade-in animations and keeps the rest of the row's state untouched).
+function patchConnCell(i) {
+  const cell = $("conn-" + i);
+  if (cell) cell.innerHTML = connCellContent(i);
 }
 
 function summaryCards(total, ok, errN, remSum, remHas) {
@@ -256,7 +333,44 @@ function shortUrl(u) {
   catch { return u.length > 40 ? u.slice(0,40)+"..." : u; }
 }
 
+// ---- connectivity test: one async request per row, streamed into the table. ----
+async function pingAll() {
+  if (!balanceData) return;
+  const rows = sortedRows();
+  const btn = $("pingBtn");
+  btn.classList.add("loading"); btn.disabled = true;
+  $("pill").textContent = "testing";
+  // Mark every row as pending up front so all cells flip to "测试中"
+  // immediately, then resolve independently as each provider responds.
+  rows.forEach((_, i) => { pingPendingSet.add(i); pingResults[i] = null; patchConnCell(i); });
+  await Promise.allSettled(rows.map((r, i) => pingOne(i, r)));
+  btn.classList.remove("loading"); btn.disabled = false;
+  $("pill").textContent = "ok";
+}
+
+async function pingOne(i, r) {
+  const params = new URLSearchParams();
+  if (r.provider) params.set("provider", r.provider);
+  if (r.base_url) params.set("base_url", r.base_url);
+  try {
+    const res = await fetch(PING_API + "?" + params.toString(), { headers: { "Accept": "application/json" } });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    const reports = data.providers || [];
+    // Prefer the report matching this row's identity (robust whether the
+    // backend filtered to one or returned all).
+    const hit = reports.find(x => (x.provider||"") === (r.provider||"") && (x.base_url||"") === (r.base_url||"")) || reports[0];
+    pingResults[i] = hit || { provider: r.provider, base_url: r.base_url, status: "error", note: "no result" };
+  } catch (e) {
+    pingResults[i] = { provider: r.provider, base_url: r.base_url, status: "error", note: String(e.message || e) };
+  } finally {
+    pingPendingSet.delete(i);
+    patchConnCell(i);
+  }
+}
+
 $("refreshBtn").addEventListener("click", load);
+$("pingBtn").addEventListener("click", pingAll);
 load();
 </script>
 </body>

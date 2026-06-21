@@ -12,7 +12,11 @@ type providerEntry struct {
 	BaseURL  string `yaml:"base_url" json:"base_url"`
 	APIKey   string `yaml:"api_key" json:"api_key"`
 	Disabled bool   `yaml:"disabled" json:"disabled"`
+	Kind     string `yaml:"-" json:"-"`
 }
+
+// Kind records the CPA config section this provider came from (e.g.
+// "codex-api-key"). Set programmatically; not parsed from YAML.
 
 func defaultPluginConfig() pluginConfig {
 	return pluginConfig{

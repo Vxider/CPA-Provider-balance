@@ -3,6 +3,7 @@ package main
 import (
 	"encoding/json"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -22,6 +23,9 @@ func handleManagement(raw []byte) ([]byte, error) {
 		}
 	}
 	pathLower := strings.ToLower(req.Path)
+	if strings.HasSuffix(pathLower, pluginResourcePing) {
+		return serveConnectivityJSON(req.Query)
+	}
 	accept := strings.ToLower(strings.Join(req.Headers.Values("Accept"), ", "))
 	if strings.HasSuffix(pathLower, pluginManagementPath) || strings.HasSuffix(pathLower, pluginResourceJSON) {
 		return serveBalanceJSON()
@@ -94,6 +98,45 @@ func serveBalanceJSON() ([]byte, error) {
 
 func serveBalanceHTML() ([]byte, error) {
 	return managementEnvelopeHTML(http.StatusOK, renderDashboardHTML())
+}
+
+func serveConnectivityJSON(query url.Values) ([]byte, error) {
+	cfg := loadedConfig()
+	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
+	if timeout <= 0 {
+		timeout = 8 * time.Second
+	}
+	providers := collectProviders(cfg)
+	// When the caller supplies provider / base_url query params, narrow to a
+	// single provider so the frontend can stream results per row.
+	if name := query.Get("provider"); name != "" || query.Get("base_url") != "" {
+		providers = filterProviders(providers, query.Get("provider"), query.Get("base_url"))
+	}
+	reports := queryProviderConnectivity(providers, timeout, cfg.AutoDetectCPAConfig)
+	envelope := map[string]any{
+		"generated_at": time.Now().UTC().Format(time.RFC3339),
+		"count":        len(reports),
+		"providers":    reports,
+	}
+	return managementEnvelope(http.StatusOK, envelope)
+}
+
+// filterProviders narrows the collected providers to those matching the given
+// display name and base URL, using the same normalization the JSON report
+// produces so the frontend can round-trip a row's identity.
+func filterProviders(providers []providerEntry, name, baseURL string) []providerEntry {
+	var out []providerEntry
+	for _, p := range providers {
+		base := normalizeBaseURL(p.BaseURL)
+		if name != "" && displayNameFor(p, base) != name {
+			continue
+		}
+		if baseURL != "" && base != baseURL {
+			continue
+		}
+		out = append(out, p)
+	}
+	return out
 }
 
 func providersFromCPAConfig() []providerEntry {
