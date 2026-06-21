@@ -49,7 +49,7 @@ import (
 const (
 	pluginIdentifier     = "provider-balance"
 	pluginDisplayName    = "Provider Balance"
-	pluginMenuName       = "账号余额"
+	pluginMenuName       = "账号配额"
 	pluginVersion        = "0.1.0"
 	pluginAuthor         = "vxider"
 	pluginGitHub         = "https://github.com/router-for-me/CLIProxyAPI"
