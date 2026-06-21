@@ -84,7 +84,7 @@ func queryProviderBalance(p providerEntry, timeout time.Duration) balanceReport 
 		Provider: displayNameFor(p, base),
 		BaseURL:  base,
 		APIKey:   maskKey(p.APIKey),
-		Status:   "Err",
+		Status:   "N/A",
 		Unit:     "-",
 		Note:     "-",
 	}
@@ -92,7 +92,8 @@ func queryProviderBalance(p providerEntry, timeout time.Duration) balanceReport 
 	client := &http.Client{Timeout: timeout}
 	endpoints := endpointsFor(base)
 
-	var errors []string
+	var errs []string        // real query errors (network, 5xx, auth, parse)
+	var unsupported []string // provider does not expose a balance endpoint
 	for _, ep := range endpoints {
 		u, err := url.JoinPath(base, ep.path)
 		if err != nil {
@@ -100,7 +101,7 @@ func queryProviderBalance(p providerEntry, timeout time.Duration) balanceReport 
 		}
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, u, nil)
 		if err != nil {
-			errors = append(errors, ep.path+": "+err.Error())
+			errs = append(errs, ep.path+": "+err.Error())
 			continue
 		}
 		req.Header.Set("Authorization", "Bearer "+p.APIKey)
@@ -110,27 +111,30 @@ func queryProviderBalance(p providerEntry, timeout time.Duration) balanceReport 
 		}
 		resp, err := client.Do(req)
 		if err != nil {
-			errors = append(errors, ep.path+": "+compactErr(err))
+			errs = append(errs, ep.path+": "+compactErr(err))
 			continue
 		}
 		body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 		_ = resp.Body.Close()
-		if resp.StatusCode >= 500 {
-			errors = append(errors, fmt.Sprintf("%s HTTP %d", ep.path, resp.StatusCode))
+		switch {
+		case resp.StatusCode >= 500:
+			errs = append(errs, fmt.Sprintf("%s HTTP %d", ep.path, resp.StatusCode))
 			continue
-		}
-		if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-			errors = append(errors, fmt.Sprintf("%s HTTP %d: %s", ep.path, resp.StatusCode, preview(body)))
+		case resp.StatusCode == 404:
+			unsupported = append(unsupported, fmt.Sprintf("%s HTTP 404", ep.path))
+			continue
+		case resp.StatusCode < 200 || resp.StatusCode >= 300:
+			errs = append(errs, fmt.Sprintf("%s HTTP %d: %s", ep.path, resp.StatusCode, preview(body)))
 			continue
 		}
 		var value map[string]any
 		if err := json.Unmarshal(body, &value); err != nil {
-			errors = append(errors, ep.path+": parse: "+compactErr(err))
+			errs = append(errs, ep.path+": parse: "+compactErr(err))
 			continue
 		}
 		parsed, ok := parseBalanceValue(ep.shape, value)
 		if !ok {
-			errors = append(errors, ep.path+": unsupported response")
+			unsupported = append(unsupported, ep.path+": unsupported response")
 			continue
 		}
 		report.Status = "OK"
@@ -141,10 +145,14 @@ func queryProviderBalance(p providerEntry, timeout time.Duration) balanceReport 
 		report.Note = parsed.note
 		return report
 	}
-	if len(errors) > 0 {
-		report.Note = strings.Join(errors, " | ")
+	// No endpoint succeeded: distinguish a real query error from a provider
+	// that simply does not expose usage/balance information.
+	if len(errs) > 0 {
+		report.Status = "Err"
+		report.Note = strings.Join(errs, " | ")
 	} else {
-		report.Note = "no balance endpoint attempted"
+		report.Status = "N/A"
+		report.Note = "不支持用量查询"
 	}
 	return report
 }

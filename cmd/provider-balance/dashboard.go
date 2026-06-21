@@ -11,7 +11,7 @@ const dashboardHTML = `<!DOCTYPE html>
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjYThhMDlhIiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHJlY3QgeD0iMiIgeT0iNSIgd2lkdGg9IjIwIiBoZWlnaHQ9IjE0IiByeD0iMyIvPjxwYXRoIGQ9Ik0yIDEwaDIwIi8+PHBhdGggZD0iTTYgMTVoNCIvPjwvc3ZnPg==">
+<link rel="icon" href="data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHZpZXdCb3g9IjAgMCAyNCAyNCIgZmlsbD0ibm9uZSIgc3Ryb2tlPSIjNGZlM2M1IiBzdHJva2Utd2lkdGg9IjIiIHN0cm9rZS1saW5lY2FwPSJyb3VuZCIgc3Ryb2tlLWxpbmVqb2luPSJyb3VuZCI+PHBhdGggZD0ibTE2IDE2IDMtOCAzIDhjLS44Ny42NS0xLjkyIDEtMyAxcy0yLjEzLS4zNS0zLTFaIi8+PHBhdGggZD0ibTIgMTYgMy04IDMgOGMtLjg3LjY1LTEuOTIgMS0zIDFzLTIuMTMtLjM1LTMtMVoiLz48cGF0aCBkPSJNNyAyMWgxMCIvPjxwYXRoIGQ9Ik0xMiAzdjE4Ii8+PHBhdGggZD0iTTMgN2gyYzIgMCA1LTEgNy0yIDIgMSA1IDIgNyAyaDIiLz48L3N2Zz4=">
 <title>Provider Balance</title>
 <style>
   :root {
@@ -52,7 +52,7 @@ const dashboardHTML = `<!DOCTYPE html>
     background: linear-gradient(92deg, var(--accent), var(--accent-2));
     -webkit-background-clip: text; background-clip: text; color: transparent;
   }
-  .logo { width: 28px; height: 28px; color: #a8a09a; flex: none; }
+  .logo { width: 28px; height: 28px; color: #4fe3c5; flex: none; }
   .refresh-btn {
     margin-left: auto; padding: 6px 12px; border-radius: 999px;
     font-size: 12px; line-height: 1; color: var(--ink-dim);
@@ -90,11 +90,13 @@ const dashboardHTML = `<!DOCTYPE html>
   .summary .card .label { font-size: 12px; color: var(--ink-faint); text-transform: uppercase; letter-spacing: 1px; }
   .summary .card .value { font-size: 26px; font-weight: 700; margin-top: 4px; }
   .summary .card .value.dim { color: var(--ink-dim); font-weight: 500; }
-  table.grid {
-    width: 100%; border-collapse: separate; border-spacing: 0;
+  .table-wrap {
+    border-radius: 14px; overflow-x: auto;
     background: var(--panel); border: 1px solid var(--panel-border);
-    border-radius: 14px; overflow: hidden;
     backdrop-filter: blur(8px);
+  }
+  table.grid {
+    width: 100%; border-collapse: separate; border-spacing: 0; min-width: max-content;
   }
   table.grid th, table.grid td {
     padding: 12px 16px; text-align: left; font-size: 14px;
@@ -106,10 +108,14 @@ const dashboardHTML = `<!DOCTYPE html>
     background: rgba(0,0,0,0.18);
   }
   table.grid tr:last-child td { border-bottom: none; }
-  table.grid tr.row-err td { color: var(--bad); }
   table.grid tr.row-ok td .num { color: var(--good); }
   td .kind { color: var(--accent-2); font-size: 12px; }
   td .note { color: var(--ink-faint); font-size: 12px; max-width: 340px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  td.provider { white-space: nowrap; }
+  td.status { font-weight: 600; white-space: nowrap; }
+  td.status-ok { color: var(--good); }
+  td.status-err { color: var(--bad); }
+  td.status-na { color: var(--ink-dim); }
   .bar { height: 6px; border-radius: 3px; background: rgba(255,255,255,0.08); overflow: hidden; min-width: 90px; margin-top: 4px; }
   .bar > span { display: block; height: 100%; border-radius: 3px; background: linear-gradient(90deg, var(--accent), var(--accent-2)); }
   .bar.high > span { background: linear-gradient(90deg, var(--good), var(--accent)); }
@@ -130,7 +136,7 @@ const dashboardHTML = `<!DOCTYPE html>
 </head>
 <body>
   <header class="top">
-    <h1><svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="2" y="5" width="20" height="14" rx="3"/><path d="M2 10h20"/><path d="M6 15h4"/></svg>Provider Balance</h1>
+    <h1><svg class="logo" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="m16 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="m2 16 3-8 3 8c-.87.65-1.92 1-3 1s-2.13-.35-3-1Z"/><path d="M7 21h10"/><path d="M12 3v18"/><path d="M3 7h2c2 0 5-1 7-2 2 1 5 2 7 2h2"/></svg>Provider Balance</h1>
     <span class="sub" id="when">--</span>
     <button class="refresh-btn" id="refreshBtn" type="button" title="刷新"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12a9 9 0 1 1-2.64-6.36"/><path d="M21 3v6h-6"/></svg></button>
     <span class="status-pill"><span class="dot" id="dot"></span><span id="pill">idle</span></span>
@@ -138,6 +144,7 @@ const dashboardHTML = `<!DOCTYPE html>
 
   <section class="summary" id="summary"></section>
 
+  <div class="table-wrap">
   <table class="grid">
     <thead>
       <tr>
@@ -154,6 +161,7 @@ const dashboardHTML = `<!DOCTYPE html>
       <tr><td colspan="7" class="empty">Loading...</td></tr>
     </tbody>
   </table>
+  </div>
 
   <footer>provider-balance plugin</footer>
 
@@ -202,35 +210,35 @@ async function load() {
 function render(data) {
   const rows = (data.providers || []).slice().sort((a,b) => (a.provider||"").localeCompare(b.provider||""));
   const okCount = rows.filter(r => r.status === "OK").length;
+  const errCount = rows.filter(r => r.status === "Err").length;
   let remSum = 0, remHas = 0;
   rows.forEach(r => {
     if (typeof r.remaining === "number") { remSum += r.remaining; remHas++; }
   });
-  $("summary").innerHTML = summaryCards(rows.length, okCount, remSum, remHas);
+  $("summary").innerHTML = summaryCards(rows.length, okCount, errCount, remSum, remHas);
   if (!rows.length) {
     $("rows").innerHTML = '<tr><td colspan="7" class="empty">No providers configured. Set openai-compatibility / codex-api-key in config.yaml or extra_providers in the plugin config.</td></tr>';
     return;
   }
   $("rows").innerHTML = rows.map(r => {
-    const cls = r.status === "OK" ? "row-ok" : "row-err";
+    const cls = r.status === "OK" ? "row-ok" : "";
     const p = pct(r.remaining, r.total);
     let barCls = "bar", barW = "0%";
     if (p != null) { barW = p.toFixed(1) + "%"; barCls += p > 50 ? " high" : " low"; }
     const bar = '<div class="' + barCls + '"><span style="width:' + (p!=null?barW:"0%") + '"></span></div>';
     return '<tr class="' + cls + '">'
-      + '<td><div>' + esc(r.provider || "-") + '</div><div class="kind mono">' + esc(r.kind || "") + '</div></td>'
+      + '<td class="provider"><div>' + esc(r.provider || "-") + '</div><div class="kind mono">' + esc(r.kind || "") + '</div></td>'
       + '<td class="hide-sm mono" title="' + esc(r.base_url||"") + '">' + esc(shortUrl(r.base_url)) + '</td>'
       + '<td class="num mono">' + fmtNum(r.remaining, r.unit) + bar + '</td>'
       + '<td class="hide-sm mono">' + fmtNum(r.used, "") + '</td>'
       + '<td class="hide-sm mono">' + fmtNum(r.total, "") + '</td>'
-      + '<td>' + esc(r.status || "-") + '</td>'
+      + '<td class="status ' + (r.status === "OK" ? "status-ok" : r.status === "Err" ? "status-err" : "status-na") + '">' + esc(r.status || "-") + '</td>'
       + '<td class="hide-sm"><div class="note" title="' + esc(r.note||"") + '">' + esc(r.note || "-") + '</div></td>'
       + '</tr>';
   }).join("");
 }
 
-function summaryCards(total, ok, remSum, remHas) {
-  const errN = total - ok;
+function summaryCards(total, ok, errN, remSum, remHas) {
   const remCard = remHas > 0
     ? '<div class="value">' + (remSum >= 100 ? remSum.toFixed(0) : remSum.toFixed(2)) + '</div>'
     : '<div class="value dim">--</div>';
