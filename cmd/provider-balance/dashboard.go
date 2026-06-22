@@ -157,6 +157,12 @@ const dashboardHTML = `<!DOCTYPE html>
     border: 2px solid rgba(255,255,255,0.15); border-top-color: var(--accent);
     animation: spin .7s linear infinite;
   }
+  .bal-loading { color: var(--ink-dim); display: inline-flex; align-items: center; gap: 6px; font-size: 13px; }
+  .bal-loading::before {
+    content: ""; width: 10px; height: 10px; border-radius: 50%;
+    border: 2px solid rgba(255,255,255,0.15); border-top-color: var(--accent-2);
+    animation: spin .7s linear infinite;
+  }
   @media (max-width: 640px) {
     .hide-sm { display: none; }
     table.grid th, table.grid td { padding: 10px 12px; font-size: 13px; }
@@ -198,15 +204,18 @@ const dashboardHTML = `<!DOCTYPE html>
 
 <script>
 const API = "/v0/resource/plugins/provider-balance/balance.json";
+const PROVIDERS_API = "/v0/resource/plugins/provider-balance/providers.json";
 const PING_API = "/v0/resource/plugins/provider-balance/ping.json";
 const $ = (id) => document.getElementById(id);
 
-// Cached balance data and per-row connectivity state. Connectivity results are
-// keyed by row index (matching the sorted balance rows) so a single cell can be
-// patched without re-rendering the whole table.
+// Provider list (from providers.json, fast — no balance queries).
+// Per-row balance and connectivity results are keyed by row index so a single
+// cell can be patched without re-rendering the whole table.
 let balanceData = null;
-let pingResults = {};          // rowIndex -> connectivity report
-let pingPendingSet = new Set(); // rowIndexes currently being tested
+let balanceResults = {};          // rowIndex -> balance report
+let balancePendingSet = new Set(); // rowIndexes whose balance is still loading
+let pingResults = {};             // rowIndex -> connectivity report
+let pingPendingSet = new Set();   // rowIndexes currently being tested
 
 const PING_STATUS_LABEL = {
   ok: "OK", unreachable: "不可达", unauthorized: "未授权",
@@ -228,20 +237,24 @@ function pct(remaining, total) {
   return p;
 }
 
-// ---- balance load (initial + refresh). Does NOT run connectivity. ----
+// ---- load: fetch provider list (fast) then stream balances per row ----
 async function load() {
   $("dot").className = "dot live";
   $("pill").textContent = "fetching";
   const btn = $("refreshBtn");
   btn.classList.add("loading"); btn.disabled = true;
   try {
-    const res = await fetch(API, { headers: { "Accept": "application/json" } });
+    // Step 1: fetch provider list (no balance queries — renders instantly).
+    const res = await fetch(PROVIDERS_API, { headers: { "Accept": "application/json" } });
     if (!res.ok) throw new Error("HTTP " + res.status);
     balanceData = await res.json();
-    // A balance refresh invalidates previous connectivity results.
+    balanceResults = {};
+    balancePendingSet = new Set();
     pingResults = {};
     pingPendingSet = new Set();
     render();
+    // Step 2: stream balance data per-provider (async, patches cells as they arrive).
+    await loadBalances();
     $("dot").className = "dot live";
     $("pill").textContent = "ok";
   } catch (e) {
@@ -263,38 +276,95 @@ function sortedRows() {
 function render() {
   if (!balanceData) return;
   const rows = sortedRows();
-  const okCount = rows.filter(r => r.status === "OK").length;
-  const errCount = rows.filter(r => r.status === "Err").length;
-  let remSum = 0, remHas = 0;
-  rows.forEach(r => {
-    if (typeof r.remaining === "number") { remSum += r.remaining; remHas++; }
-  });
-  $("summary").innerHTML = summaryCards(rows.length, okCount, errCount, remSum, remHas);
+  updateSummary();
   if (!rows.length) {
     $("rows").innerHTML = '<tr><td colspan="8" class="empty">No providers configured. Set openai-compatibility / codex-api-key in config.yaml or extra_providers in the plugin config.</td></tr>';
     return;
   }
   $("rows").innerHTML = rows.map((r, i) => {
-    const cls = r.status === "OK" ? "row-ok" : "";
-    const p = pct(r.remaining, r.total);
-    let barCls = "bar", barW = "0%";
-    if (p != null) { barW = p.toFixed(1) + "%"; barCls += p > 50 ? " high" : " low"; }
-    const bar = '<div class="' + barCls + '"><span style="width:' + (p!=null?barW:"0%") + '"></span></div>';
-    return '<tr class="' + cls + '">'
+    return '<tr id="row-' + i + '">'
       + '<td class="provider"><div>' + esc(r.provider || "-") + '</div><div class="kind mono">' + esc(r.kind || "") + '</div></td>'
       + '<td class="hide-sm mono" title="' + esc(r.base_url||"") + '">' + esc(shortUrl(r.base_url)) + '</td>'
-      + '<td class="num mono">' + fmtNum(r.remaining, r.unit) + bar + '</td>'
-      + '<td class="hide-sm mono">' + fmtNum(r.used, "") + '</td>'
-      + '<td class="hide-sm mono">' + fmtNum(r.total, "") + '</td>'
-      + '<td class="status ' + (r.status === "OK" ? "status-ok" : r.status === "Err" ? "status-err" : "status-na") + '">' + esc(r.status || "-") + '</td>'
+      + '<td id="bal-remaining-' + i + '" class="num mono"><span class="bal-loading">loading</span></td>'
+      + '<td id="bal-used-' + i + '" class="hide-sm mono">-</td>'
+      + '<td id="bal-total-' + i + '" class="hide-sm mono">-</td>'
+      + '<td id="bal-status-' + i + '" class="status status-na"><span class="bal-loading">...</span></td>'
       + '<td class="conn-cell" id="conn-' + i + '">' + connCellContent(i) + '</td>'
-      + '<td class="hide-sm"><div class="note" title="' + esc(r.note||"") + '">' + esc(r.note || "-") + '</div></td>'
+      + '<td id="bal-note-' + i + '" class="hide-sm"><div class="note">-</div></td>'
       + '</tr>';
   }).join("");
 }
 
-// connCellContent returns the inner markup for a connectivity cell (without the
-// <td> wrapper), shared by the initial render and the per-row patch.
+// ---- balance streaming: one async request per row, patched into cells ----
+async function loadBalances() {
+  if (!balanceData) return;
+  const rows = sortedRows();
+  rows.forEach((_, i) => { balancePendingSet.add(i); });
+  await Promise.allSettled(rows.map((r, i) => loadBalanceOne(i, r)));
+}
+
+async function loadBalanceOne(i, r) {
+  const params = new URLSearchParams();
+  if (r.provider) params.set("provider", r.provider);
+  if (r.base_url) params.set("base_url", r.base_url);
+  try {
+    const res = await fetch(API + "?" + params.toString(), { headers: { "Accept": "application/json" } });
+    if (!res.ok) throw new Error("HTTP " + res.status);
+    const data = await res.json();
+    const reports = data.providers || [];
+    const hit = reports.find(x => (x.provider||"") === (r.provider||"") && (x.base_url||"") === (r.base_url||"")) || reports[0];
+    balanceResults[i] = hit || { provider: r.provider, base_url: r.base_url, status: "Err", note: "no result" };
+  } catch (e) {
+    balanceResults[i] = { provider: r.provider, base_url: r.base_url, status: "Err", note: String(e.message || e) };
+  } finally {
+    balancePendingSet.delete(i);
+    patchBalanceCell(i);
+    updateSummary();
+  }
+}
+
+// Patch balance cells for a single row without re-rendering the table.
+function patchBalanceCell(i) {
+  const r = balanceResults[i];
+  if (!r) return;
+  const row = $("row-" + i);
+  if (row) row.className = r.status === "OK" ? "row-ok" : "";
+  const p = pct(r.remaining, r.total);
+  let barCls = "bar", barW = "0%";
+  if (p != null) { barW = p.toFixed(1) + "%"; barCls += p > 50 ? " high" : " low"; }
+  const remCell = $("bal-remaining-" + i);
+  if (remCell) {
+    remCell.innerHTML = fmtNum(r.remaining, r.unit) + '<div class="' + barCls + '"><span style="width:' + (p!=null?barW:"0%") + '"></span></div>';
+  }
+  const usedCell = $("bal-used-" + i);
+  if (usedCell) usedCell.textContent = fmtNum(r.used, "");
+  const totalCell = $("bal-total-" + i);
+  if (totalCell) totalCell.textContent = fmtNum(r.total, "");
+  const statusCell = $("bal-status-" + i);
+  if (statusCell) {
+    statusCell.className = "status " + (r.status === "OK" ? "status-ok" : r.status === "Err" ? "status-err" : "status-na");
+    statusCell.textContent = r.status || "-";
+  }
+  const noteCell = $("bal-note-" + i);
+  if (noteCell) {
+    noteCell.innerHTML = '<div class="note" title="' + esc(r.note||"") + '">' + esc(r.note || "-") + '</div>';
+  }
+}
+
+function updateSummary() {
+  if (!balanceData) return;
+  const rows = sortedRows();
+  let okCount = 0, errCount = 0, remSum = 0, remHas = 0;
+  rows.forEach((r, i) => {
+    const b = balanceResults[i];
+    if (!b) return;
+    if (b.status === "OK") okCount++;
+    if (b.status === "Err") errCount++;
+    if (typeof b.remaining === "number") { remSum += b.remaining; remHas++; }
+  });
+  $("summary").innerHTML = summaryCards(rows.length, okCount, errCount, remSum, remHas);
+}
+
 function connCellContent(i) {
   if (pingPendingSet.has(i)) {
     return '<span class="conn-running">测试中</span>';
@@ -308,8 +378,6 @@ function connCellContent(i) {
     + (meta ? '<div class="conn-meta mono">' + esc(meta) + '</div>' : '');
 }
 
-// Patch a single cell without re-rendering the table (avoids re-triggering row
-// fade-in animations and keeps the rest of the row's state untouched).
 function patchConnCell(i) {
   const cell = $("conn-" + i);
   if (cell) cell.innerHTML = connCellContent(i);
@@ -340,8 +408,6 @@ async function pingAll() {
   const btn = $("pingBtn");
   btn.classList.add("loading"); btn.disabled = true;
   $("pill").textContent = "testing";
-  // Mark every row as pending up front so all cells flip to "测试中"
-  // immediately, then resolve independently as each provider responds.
   rows.forEach((_, i) => { pingPendingSet.add(i); pingResults[i] = null; patchConnCell(i); });
   await Promise.allSettled(rows.map((r, i) => pingOne(i, r)));
   btn.classList.remove("loading"); btn.disabled = false;
@@ -357,8 +423,6 @@ async function pingOne(i, r) {
     if (!res.ok) throw new Error("HTTP " + res.status);
     const data = await res.json();
     const reports = data.providers || [];
-    // Prefer the report matching this row's identity (robust whether the
-    // backend filtered to one or returned all).
     const hit = reports.find(x => (x.provider||"") === (r.provider||"") && (x.base_url||"") === (r.base_url||"")) || reports[0];
     pingResults[i] = hit || { provider: r.provider, base_url: r.base_url, status: "error", note: "no result" };
   } catch (e) {

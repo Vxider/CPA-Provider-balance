@@ -58,6 +58,7 @@ const (
 	pluginResourcePath   = "/balance"
 	pluginResourceJSON   = "/balance.json"
 	pluginResourcePing   = "/ping.json"
+	pluginResourceProviders = "/providers.json"
 )
 
 var currentConfig atomic.Value
@@ -231,6 +232,7 @@ func managementRegistration() managementRegistrationResponse {
 			{Path: pluginResourcePath, Menu: pluginMenuName, Description: "AI provider API-key balance dashboard"},
 			{Path: pluginResourceJSON, Menu: "", Description: "Balance data as JSON"},
 			{Path: pluginResourcePing, Menu: "", Description: "Provider connectivity test as JSON"},
+			{Path: pluginResourceProviders, Menu: "", Description: "Provider list as JSON (without balance data)"},
 		},
 	}
 }

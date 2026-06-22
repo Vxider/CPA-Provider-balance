@@ -26,12 +26,15 @@ func handleManagement(raw []byte) ([]byte, error) {
 	if strings.HasSuffix(pathLower, pluginResourcePing) {
 		return serveConnectivityJSON(req.Query)
 	}
+	if strings.HasSuffix(pathLower, pluginResourceProviders) {
+		return serveProvidersJSON()
+	}
 	accept := strings.ToLower(strings.Join(req.Headers.Values("Accept"), ", "))
 	if strings.HasSuffix(pathLower, pluginManagementPath) || strings.HasSuffix(pathLower, pluginResourceJSON) {
-		return serveBalanceJSON()
+		return serveBalanceJSON(req.Query)
 	}
 	if strings.Contains(accept, "application/json") && !strings.Contains(accept, "text/html") {
-		return serveBalanceJSON()
+		return serveBalanceJSON(req.Query)
 	}
 	return serveBalanceHTML()
 }
@@ -80,18 +83,60 @@ func collectProviders(cfg pluginConfig) []providerEntry {
 	return dedupeProviders(out)
 }
 
-func serveBalanceJSON() ([]byte, error) {
+func serveBalanceJSON(query url.Values) ([]byte, error) {
 	cfg := loadedConfig()
 	timeout := time.Duration(cfg.TimeoutSeconds) * time.Second
 	if timeout <= 0 {
 		timeout = 8 * time.Second
 	}
 	providers := collectProviders(cfg)
+	// When the caller supplies provider / base_url query params, narrow to a
+	// single provider so the frontend can stream balance results per row.
+	if query.Get("provider") != "" || query.Get("base_url") != "" {
+		providers = filterProviders(providers, query.Get("provider"), query.Get("base_url"))
+	}
 	reports := queryProviderBalances(providers, timeout, cfg.AutoDetectCPAConfig)
 	envelope := map[string]any{
 		"generated_at": time.Now().UTC().Format(time.RFC3339),
 		"count":        len(reports),
 		"providers":    reports,
+	}
+	return managementEnvelope(http.StatusOK, envelope)
+}
+
+// serveProvidersJSON returns the provider list without querying balances.
+// This lets the dashboard render the table immediately and stream balance
+// data per-row via separate balance.json?provider=... requests.
+func serveProvidersJSON() ([]byte, error) {
+	cfg := loadedConfig()
+	providers := collectProviders(cfg)
+	info := make([]balanceReport, 0, len(providers))
+	for _, p := range providers {
+		if p.Disabled || p.BaseURL == "" || p.APIKey == "" {
+			continue
+		}
+		base := normalizeBaseURL(p.BaseURL)
+		kind := ""
+		if cfg.AutoDetectCPAConfig {
+			kind = providerKindFromBaseURL(p.BaseURL)
+		}
+		if kind == "" {
+			kind = "provider"
+		}
+		info = append(info, balanceReport{
+			Provider: displayNameFor(p, base),
+			Kind:     kind,
+			BaseURL:  base,
+			APIKey:   maskKey(p.APIKey),
+			Status:   "loading",
+			Unit:     "-",
+			Note:     "-",
+		})
+	}
+	envelope := map[string]any{
+		"generated_at": time.Now().UTC().Format(time.RFC3339),
+		"count":        len(info),
+		"providers":    info,
 	}
 	return managementEnvelope(http.StatusOK, envelope)
 }
