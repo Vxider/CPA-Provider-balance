@@ -149,3 +149,26 @@ gemini-api-key:
 func parseForTest(data []byte) ([]providerEntry, error) {
 	return extractSectionFromBytes(data, "codex-api-key")
 }
+
+func TestJoinAPIPath(t *testing.T) {
+	cases := map[string]struct {
+		base string
+		path string
+		want string
+	}{
+		"base with v1":            {"https://xlapis.com/v1", "/v1/models", "https://xlapis.com/v1/models"},
+		"base without v1":         {"https://api.openai.com", "/v1/models", "https://api.openai.com/v1/models"},
+		"base trailing slash v1":  {"https://xlapis.com/v1/", "/v1/chat/completions", "https://xlapis.com/v1/chat/completions"},
+		"non-versioned path v1":   {"https://xlapis.com/v1", "/dashboard/billing/credit_grants", "https://xlapis.com/v1/dashboard/billing/credit_grants"},
+		"zhipu base with prefix":  {"https://open.bigmodel.cn/api/paas/v4", "/api/paas/v4/models", "https://open.bigmodel.cn/api/paas/v4/models"},
+		"zhipu base without prefix": {"https://open.bigmodel.cn", "/api/paas/v4/models", "https://open.bigmodel.cn/api/paas/v4/models"},
+	}
+	for name, c := range cases {
+		t.Run(name, func(t *testing.T) {
+			got := joinAPIPath(c.base, c.path)
+			if got != c.want {
+				t.Errorf("joinAPIPath(%q, %q) = %q, want %q", c.base, c.path, got, c.want)
+			}
+		})
+	}
+}

@@ -95,10 +95,7 @@ func queryProviderBalance(p providerEntry, timeout time.Duration) balanceReport 
 	var errs []string        // real query errors (network, 5xx, auth, parse)
 	var unsupported []string // provider does not expose a balance endpoint
 	for _, ep := range endpoints {
-		u, err := url.JoinPath(base, ep.path)
-		if err != nil {
-			continue
-		}
+		u := joinAPIPath(base, ep.path)
 		req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, u, nil)
 		if err != nil {
 			errs = append(errs, ep.path+": "+err.Error())
@@ -318,6 +315,29 @@ func normalizeBaseURL(base string) string {
 	base = strings.TrimSpace(base)
 	base = strings.TrimRight(base, "/")
 	return base
+}
+
+// apiVersionPrefix returns the versioned API prefix used by the host. Zhipu
+// (bigmodel) uses /api/paas/v4; everything else uses /v1.
+func apiVersionPrefix(base string) string {
+	if isZhipuBaseURL(base) {
+		return "/api/paas/v4"
+	}
+	return "/v1"
+}
+
+// joinAPIPath attaches an API path to base without duplicating the version
+// prefix. When base already carries the prefix (e.g. "https://xlapis.com/v1")
+// and path starts with the same prefix, the prefix is stripped from path so
+// the result is ".../v1/models" rather than ".../v1/v1/models". When path does
+// not start with the prefix it is appended verbatim.
+func joinAPIPath(base, path string) string {
+	b := strings.TrimRight(base, "/")
+	prefix := apiVersionPrefix(base)
+	if strings.HasPrefix(path, prefix+"/") && strings.HasSuffix(b, prefix) {
+		return b + strings.TrimPrefix(path, prefix)
+	}
+	return b + path
 }
 
 func displayNameFor(p providerEntry, base string) string {

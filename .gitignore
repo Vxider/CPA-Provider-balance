@@ -11,3 +11,6 @@
 *.swp
 .idea/
 .vscode/
+
+# compiled binary
+/provider-balance

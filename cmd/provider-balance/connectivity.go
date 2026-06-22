@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"sync"
 	"time"
 )
@@ -70,22 +69,6 @@ func preferredModelFor(p providerEntry) string {
 	return ""
 }
 
-// endpointsPath and chatPath select OpenAI-compatible paths, with a Zhipu
-// variant for bigmodel hosts.
-func modelsPathFor(base string) string {
-	if isZhipuBaseURL(base) {
-		return "/api/paas/v4/models"
-	}
-	return "/v1/models"
-}
-
-func chatPathFor(base string) string {
-	if isZhipuBaseURL(base) {
-		return "/api/paas/v4/chat/completions"
-	}
-	return "/v1/chat/completions"
-}
-
 // healthCheckProvider performs the two-step health check:
 //  1. GET /v1/models to discover a usable model id (also validates auth).
 //  2. POST a minimal chat completion with max_tokens=1 to confirm the model
@@ -134,11 +117,7 @@ func healthCheckProvider(p providerEntry, timeout time.Duration) connectivityRep
 	}
 	payload, _ := json.Marshal(body)
 
-	u, err := url.JoinPath(base, chatPathFor(base))
-	if err != nil {
-		report.Note = "invalid url: " + err.Error()
-		return report
-	}
+	u := joinAPIPath(base, "/chat/completions")
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodPost, u, bytes.NewReader(payload))
 	if err != nil {
 		report.Note = "request build failed: " + compactErr(err)
@@ -182,10 +161,7 @@ func healthCheckProvider(p providerEntry, timeout time.Duration) connectivityRep
 // first available id is used. code/note describe the request outcome for error
 // reporting.
 func discoverModel(client *http.Client, base, apiKey, preferred string) (model string, code int, note string) {
-	u, err := url.JoinPath(base, modelsPathFor(base))
-	if err != nil {
-		return "", 0, "invalid url"
-	}
+	u := joinAPIPath(base, "/models")
 	req, err := http.NewRequestWithContext(context.Background(), http.MethodGet, u, nil)
 	if err != nil {
 		return "", 0, "request build failed"
